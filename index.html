@@ -1,49 +1,348 @@
-<!-- index.html -->
 <!DOCTYPE html>
 <html lang="hr">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 
-  <title>AR HUD TARGET LOCK</title>
+<title>AR HUD TARGET LOCK</title>
 
-  <meta name="theme-color" content="#000000" />
-  <meta name="description" content="Futuristic AR HUD navigation system" />
+<meta name="theme-color" content="#000000">
+<meta name="description" content="AR HUD Navigation">
 
-  <link rel="manifest" href="manifest.json" />
-  <link rel="apple-touch-icon" href="icon-192.png" />
+<link rel="manifest" href="./manifest.json">
 
-  <style>
-    html, body {
-      margin: 0;
-      padding: 0;
-      width: 100%;
-      height: 100%;
-      overflow: hidden;
-      background: black;
-    }
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: #000;
+    font-family: Arial, sans-serif;
+}
 
-    iframe {
-      border: none;
-      width: 100%;
-      height: 100%;
-    }
-  </style>
+#video-bg {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    opacity: 0.9;
+}
+
+#hud {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    color: #00ff88;
+}
+
+#crosshair {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 120px;
+    height: 120px;
+    transform: translate(-50%, -50%);
+}
+
+.line-h {
+    position: absolute;
+    top: 50%;
+    left: 0;
+    width: 100%;
+    height: 2px;
+    background: #00ff88;
+    box-shadow: 0 0 10px #00ff88;
+}
+
+.line-v {
+    position: absolute;
+    left: 50%;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: #00ff88;
+    box-shadow: 0 0 10px #00ff88;
+}
+
+.corner {
+    position: absolute;
+    width: 20px;
+    height: 20px;
+    border-color: #00ccff;
+    border-style: solid;
+}
+
+.tl {
+    top: 0;
+    left: 0;
+    border-width: 3px 0 0 3px;
+}
+
+.tr {
+    top: 0;
+    right: 0;
+    border-width: 3px 3px 0 0;
+}
+
+.bl {
+    bottom: 0;
+    left: 0;
+    border-width: 0 0 3px 3px;
+}
+
+.br {
+    bottom: 0;
+    right: 0;
+    border-width: 0 3px 3px 0;
+}
+
+#topbar {
+    position: absolute;
+    top: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    color: #00ccff;
+    font-size: 24px;
+    text-shadow: 0 0 10px #00ccff;
+}
+
+#panel {
+    position: absolute;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0,0,0,0.6);
+    border: 1px solid #00ff88;
+    padding: 15px;
+    width: 300px;
+    pointer-events: all;
+}
+
+input {
+    width: 100%;
+    margin-bottom: 10px;
+    padding: 10px;
+    background: black;
+    color: #00ff88;
+    border: 1px solid #00ff88;
+}
+
+button {
+    width: 100%;
+    padding: 12px;
+    background: black;
+    color: #00ff88;
+    border: 1px solid #00ff88;
+    cursor: pointer;
+}
+
+#distance {
+    position: absolute;
+    bottom: 180px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 32px;
+    color: #ff4444;
+    text-shadow: 0 0 12px #ff4444;
+}
+
+#status {
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    font-size: 14px;
+    line-height: 1.8;
+}
+</style>
 </head>
+
 <body>
 
-  <!-- učitava tvoj HUD -->
-  <iframe src="ar-hud.html"></iframe>
+<video id="video-bg" autoplay muted playsinline></video>
 
-  <script>
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("./sw.js")
-          .then(() => console.log("SW registered"))
-          .catch(err => console.log("SW error:", err));
-      });
+<div id="hud">
+
+<div id="topbar">
+    HEADING: <span id="heading">---</span>°
+</div>
+
+<div id="status">
+    GPS: <span id="gps-status">OFF</span><br>
+    COMPASS: <span id="compass-status">OFF</span><br>
+    CAMERA: <span id="cam-status">OFF</span>
+</div>
+
+<div id="crosshair">
+    <div class="line-h"></div>
+    <div class="line-v"></div>
+
+    <div class="corner tl"></div>
+    <div class="corner tr"></div>
+    <div class="corner bl"></div>
+    <div class="corner br"></div>
+</div>
+
+<div id="distance">---</div>
+
+<div id="panel">
+    <input id="lat" type="number" step="any" placeholder="Latitude">
+    <input id="lon" type="number" step="any" placeholder="Longitude">
+
+    <button id="lockBtn">
+        LOCK TARGET
+    </button>
+</div>
+
+</div>
+
+<script>
+let myLat = null;
+let myLon = null;
+let targetLat = null;
+let targetLon = null;
+let heading = 0;
+
+async function startCamera() {
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+            video: {
+                facingMode: "environment"
+            },
+            audio: false
+        });
+
+        document.getElementById("video-bg").srcObject = stream;
+        document.getElementById("cam-status").textContent = "ON";
+    } catch(e) {
+        console.log(e);
     }
-  </script>
+}
+
+function startGPS() {
+    navigator.geolocation.watchPosition(pos => {
+
+        myLat = pos.coords.latitude;
+        myLon = pos.coords.longitude;
+
+        document.getElementById("gps-status").textContent = "ON";
+
+        updateDistance();
+
+    }, err => {
+        console.log(err);
+    }, {
+        enableHighAccuracy: true
+    });
+}
+
+function startCompass() {
+
+    if (
+        typeof DeviceOrientationEvent !== "undefined" &&
+        typeof DeviceOrientationEvent.requestPermission === "function"
+    ) {
+
+        document.body.addEventListener("click", async () => {
+
+            const permission = await DeviceOrientationEvent.requestPermission();
+
+            if(permission === "granted") {
+                window.addEventListener("deviceorientation", handleOrientation);
+            }
+
+        }, { once: true });
+
+    } else {
+        window.addEventListener("deviceorientation", handleOrientation);
+    }
+}
+
+function handleOrientation(event) {
+
+    if(event.webkitCompassHeading) {
+        heading = event.webkitCompassHeading;
+    } else {
+        heading = 360 - event.alpha;
+    }
+
+    heading = Math.round(heading);
+
+    document.getElementById("heading").textContent = heading;
+    document.getElementById("compass-status").textContent = "ON";
+}
+
+function toRad(d) {
+    return d * Math.PI / 180;
+}
+
+function haversine(lat1, lon1, lat2, lon2) {
+
+    const R = 6371000;
+
+    const dLat = toRad(lat2 - lat1);
+    const dLon = toRad(lon2 - lon1);
+
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(toRad(lat1)) *
+        Math.cos(toRad(lat2)) *
+        Math.sin(dLon / 2) *
+        Math.sin(dLon / 2);
+
+    return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function updateDistance() {
+
+    if(
+        myLat === null ||
+        myLon === null ||
+        targetLat === null ||
+        targetLon === null
+    ) return;
+
+    const d = haversine(
+        myLat,
+        myLon,
+        targetLat,
+        targetLon
+    );
+
+    if(d > 1000) {
+        document.getElementById("distance").textContent =
+            (d / 1000).toFixed(2) + " km";
+    } else {
+        document.getElementById("distance").textContent =
+            Math.round(d) + " m";
+    }
+}
+
+document.getElementById("lockBtn").addEventListener("click", () => {
+
+    targetLat = parseFloat(
+        document.getElementById("lat").value
+    );
+
+    targetLon = parseFloat(
+        document.getElementById("lon").value
+    );
+
+    updateDistance();
+});
+
+if("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+        navigator.serviceWorker.register("./sw.js");
+    });
+}
+
+startCamera();
+startGPS();
+startCompass();
+</script>
 
 </body>
 </html>
